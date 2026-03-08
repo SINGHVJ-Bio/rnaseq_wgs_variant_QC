@@ -1,0 +1,162 @@
+# =============================================================================
+# CONFIGURATION FILE FOR RNA‑seq vs WGS VARIANT QC PIPELINE
+# =============================================================================
+# All paths must be absolute or relative to the directory where pipeline.py is run.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# USER‑PROVIDED PATHS – EDIT THESE TO MATCH YOUR SYSTEM
+# -----------------------------------------------------------------------------
+
+# VerifyBAMID2 resource BED file (choose 10k or 100k, GRCh38 version)
+# Example: 1000 Genomes Phase 3, 10k SNPs, GRCh38
+resource_bed: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/VerifyBamID_resource/1000g.phase3.10k.b38.vcf.gz.dat.bed"
+
+# RNA‑seq joint‑call VCF (hardfiltered version recommended)
+rna_joint_vcf: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/RNASeq_VCFs/Pre_EM_ENABL150_ENABL300_ENABL350_RNASeq_joint_call_cohort.hardfiltered.vcf.gz"
+# rna_joint_vcf: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/RNASeq_VCFs/Pre_EM_ENABL150_ENABL300_ENABL350_RNASeq_joint_call_cohort.chr.sorted.vcf.gz"
+
+# WGS joint‑call VCF (used as truth set)
+wgs_joint_vcf: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/WGS_VCFs/ENABL_merged_319.cleaned_cohort.snp.recalibrated.vcf.gz"
+
+# Sample mapping file (TSV with two columns: RNA_sample_name  WGS_sample_name, no header)
+sample_map: "/home/ubuntu/rnaseq-wgs-variant-pipeline/data/sample_mapping.tsv"
+
+# Gene expression matrix (genes x samples, TPM values)
+# Format: first column 'gene_id', then one column per sample (names must match RNA_sample in sample_map)
+# Optional – if not provided, stratification by expression will be skipped.
+gene_expression: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/RNA_Expression/vst_after_correction.csv"
+
+# BED file of exonic regions (for stratification, e.g., from Gencode)
+# Optional – if not provided, region stratification will be skipped.
+exome_bed: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/annotations/gencode.v38.exons.bed"
+
+# Main output directory (will be created if it doesn't exist)
+output_dir: "/home/ubuntu/DATA_DRIVE/RNASeq_WGS_Variant_results"
+
+# Log file name (relative to output_dir, or absolute path)
+log_file: "/home/ubuntu/DATA_DRIVE/RNASeq_WGS_Variant_results/pipeline.log"   # will be created inside output_dir
+
+# -----------------------------------------------------------------------------
+# STUDY-SPECIFIC SNP PANELS
+# -----------------------------------------------------------------------------
+# Define one or more custom SNP panels for analysis.
+# For each study, provide:
+#   - name: A unique identifier for the study (used for output subfolder)
+#   - file: Path to a file listing SNPs (see formats below)
+#   - has_header: true/false if the file has a header line
+#   - id_type: "position" (chrom, pos, [ref, alt]) or "rsid" (rs numbers)
+#   - build: "GRCh37" or "GRCh38" (used only if id_type is "rsid" for conversion)
+#   - description: Optional text for the output report
+#
+# File format for id_type: "position":
+#   Tab-separated with columns: chrom, pos, ref, alt
+#   Example: chr1\t123456\tA\tG
+#
+# File format for id_type: "rsid":
+#   Single column of rs numbers (e.g., rs123456)
+#   The pipeline will attempt to convert these to positions using a reference.
+#   Note: You need to provide a conversion database (see utils.py).
+
+study_snps:
+  - run: false
+    name: "Pakstis_2010_45IISNP"
+    file: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/publication_snp_lists/pakstis_45snps.tsv"
+    has_header: false
+    id_type: "position"
+    build: "GRCh38"
+    description: "45 unlinked SNPs from Pakstis et al. 2010 for universal individual identification."
+
+  - run: true
+    name: "Universal_HK_SNP_Panel"
+    file: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/Univers_SNPs/universal_hk_snps.tsv"   # <-- Housekeeping gene SNPs panel
+    has_header: false
+    id_type: "position"
+    build: "GRCh38"
+    description: "SNPs from exons of housekeeping genes, present in both RNA-seq and WGS data."
+
+# -----------------------------------------------------------------------------
+# MODULES TO RUN (true / false)
+# -----------------------------------------------------------------------------
+# In the run_modules section, add a toggle for this new analysis:
+run_modules:
+  initial_stats: false
+  variant_qc: false
+  full_vcf_comparison: true
+  compare_wgs_rnaseq: true
+  study_snp_analysis: false   
+  exploratory_plotting: true
+
+# -----------------------------------------------------------------------------
+# MODULE‑SPECIFIC PARAMETERS
+# -----------------------------------------------------------------------------
+variant_qc:
+  min_qual: 30
+  max_missing: 0.1
+  strip_chr: false
+  apply_filters: false
+  run_wgs_qc: true
+  extra_plots: true
+  
+# -----------------------------------------------------------------------------
+# COMPARE WGS RNASEQ MODULE PARAMETERS
+# -----------------------------------------------------------------------------
+compare_wgs_rnaseq:
+  min_wgs_dp: 10
+  min_rna_dp: 5
+  min_gq: 20
+  min_ase_depth: 5
+  sample_map_sep: ","
+  sample_map_columns:
+    wgs: "WGS_ID_VCF_ID"
+    rna: "RNASeq_VCF_ID"
+    expression: "Expression_ID"
+  auto_fix_chromosome_naming: true
+  # Chromosomes to include in analysis. Can be a list, e.g. ["chr1","chr2","chrX"],
+  # or "all" to use all common chromosomes between the two VCFs.
+  chromosomes: "all"
+  analysis_mode: "all"  # verifybamid or "all"
+  # If true, try a single-threaded genome-wide bcftools isec as fallback when
+  # parallel intersection finds no common sites.
+  fallback_to_full_isec: true
+  # Whether to keep intermediate files (e.g., renamed RNA VCF). If false, they are deleted after use.
+  keep_intermediate: true
+  use_position_list_fallback: true
+
+# -----------------------------------------------------------------------------
+# FULL VCF COMPARISON MODULE PARAMETERS
+# -----------------------------------------------------------------------------
+full_vcf_comparison:
+  # Which RNA VCF to use: if true, use the filtered VCF from variant_qc;
+  # if false, use the original input RNA VCF (default: false).
+  use_filtered_rna: false
+  # Chromosomes to include in analysis. Can be a list, or "all" for default set.
+  chromosomes: "all"
+  # Minimum number of variants on a chromosome to include it in plots (default: 0).
+  min_variants_per_chrom: 0
+  # Plot format(s) to save. Options: "png", "pdf", or ["png","pdf"] (default: ["png","pdf"]).
+  plot_formats: ["png", "pdf"]
+  # Whether to keep intermediate files (if any). Currently, this module does not create large intermediates.
+  keep_intermediate: true
+
+exploratory_plotting:
+  # Number of top variant sites for PCA (use most variable)
+  pca_n_sites: 1000
+  # Minimum minor allele frequency to include site
+  pca_min_maf: 0.05
+  # Figure format (png, pdf, svg) – PDF recommended for publication
+  # Figure format is now fixed to both PDF and PNG (ignored, kept for compatibility)
+  plot_format: "pdf"
+  # Publication styling: font sizes, etc.
+  plot_style: "publication"        # options: "publication", "presentation"
+
+# -----------------------------------------------------------------------------
+# INITIAL STATISTICS MODULE PARAMETERS
+# -----------------------------------------------------------------------------
+initial_stats:
+  # Chromosomes to analyze. Can be "all" (default set chr1-22, chrX, chrY) or a list.
+  chromosomes: "all"
+  # Region for quick overlap test (chromosome:start-end). Default: chr1:1-1000000
+  test_region: "chr1:1-248956422"
+  # Plot formats
+  plot_formats: ["png", "pdf"]
