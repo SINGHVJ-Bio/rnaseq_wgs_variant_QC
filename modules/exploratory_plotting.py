@@ -96,6 +96,7 @@ def _save_fig(fig, base_path, formats):
 def _plot_metrics_distributions(metrics_tsv, out_dir, formats):
     """
     Histograms of RNA‑specific metrics: VDB, RPB, MQB, BQB, MQ0F, DP, QD.
+    Robustly handles mixed data types by converting to numeric and dropping NaN.
     Saves a multi‑panel figure.
     """
     logger = utils.get_logger()
@@ -110,7 +111,12 @@ def _plot_metrics_distributions(metrics_tsv, out_dir, formats):
     for i, met in enumerate(metrics):
         ax = axes[i]
         if met in df.columns:
-            data = df[met].dropna()
+            # Convert to numeric, coerce errors to NaN, drop NaN
+            data = pd.to_numeric(df[met], errors='coerce').dropna()
+            if len(data) == 0:
+                ax.text(0.5, 0.5, 'No numeric data', ha='center', va='center')
+                ax.set_title(met)
+                continue
             # Remove extreme outliers for DP
             if met == 'DP':
                 data = data[data < np.percentile(data, 99)]
@@ -193,6 +199,7 @@ def _sample_identity_pca(vcf, filtered_map, out_dir, formats, params):
     """
     Perform PCA on a subset of common SNPs and generate IBS heatmap.
     Uses filtered mapping to colour points correctly.
+    Now includes safeguards for empty genotype matrices.
     """
     logger = utils.get_logger()
     from sklearn.decomposition import PCA
@@ -224,7 +231,8 @@ def _sample_identity_pca(vcf, filtered_map, out_dir, formats, params):
     utils.run_cmd(cmd, "Selecting random sites for PCA")
 
     # Extract genotype matrix (0,1,2) for all samples at those sites
-    cmd = f"bcftools query -R {tmp_sites} -f '[%CHROM:%POS\t%GT\t]\n' {vcf} | cut -f1- > {out_dir}/pca_raw.tsv"
+    # Correct format: no trailing tab, each sample's GT separated by tabs
+    cmd = f"bcftools query -R {tmp_sites} -f '[%CHROM:%POS\t%GT]\n' {vcf} > {out_dir}/pca_raw.tsv"
     utils.run_cmd(cmd, "Extracting genotypes for PCA")
 
     # Parse the raw file
@@ -243,7 +251,8 @@ def _sample_identity_pca(vcf, filtered_map, out_dir, formats, params):
         else:
             return np.nan
 
-    geno = geno_raw.applymap(gt_to_int)
+    # Use .map instead of deprecated .applymap
+    geno = geno_raw.map(gt_to_int)
     geno.columns = samples
     geno.index = site_ids
 
@@ -251,8 +260,17 @@ def _sample_identity_pca(vcf, filtered_map, out_dir, formats, params):
     maf = geno.apply(lambda row: (row==1).sum() + 2*(row==2).sum(), axis=1) / (2 * geno.shape[1])
     geno = geno[(maf >= min_maf) & (maf <= 1-min_maf)]
 
+    if geno.shape[0] == 0:
+        logger.warning("  No sites passed MAF filtering; skipping PCA and IBS heatmap.")
+        return
+
     # Impute missing values with mean
     geno = geno.fillna(geno.mean(axis=1), axis=0)
+
+    # Check if we have at least 2 sites
+    if geno.shape[0] < 2:
+        logger.warning("  Less than 2 sites after filtering; skipping PCA and IBS heatmap.")
+        return
 
     # PCA
     pca = PCA(n_components=2)
