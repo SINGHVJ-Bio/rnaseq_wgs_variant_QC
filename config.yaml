@@ -69,7 +69,7 @@ study_snps:
 
   - run: true
     name: "Universal_HK_SNP_Panel"
-    file: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/Univers_SNPs/universal_hk_snps.tsv"   # <-- Housekeeping gene SNPs panel
+    file: "/home/ubuntu/DATA_DRIVE/RNASeq_Variant_Data/data/Univers_SNPs/universal_hk_snps.tsv"   # <-- Manualy generated housekeeping gene SNPs panel
     has_header: false
     id_type: "position"
     build: "GRCh38"
